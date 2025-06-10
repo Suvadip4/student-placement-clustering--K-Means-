@@ -1,88 +1,64 @@
 import streamlit as st
 import pandas as pd
-import joblib
+from sklearn.preprocessing import StandardScaler
+from sklearn.cluster import KMeans
 
-st.title("🎓 Campus Placement Prediction System")
+st.title("🎓 Student Placement Clustering App (K-Means)")
+st.write("Upload a dataset to cluster students into High, Medium, or Low placement chance groups.")
 
-# Gender
-gender = st.selectbox("Gender", ["Male", "Female"])
-p1 = 1 if gender == "Male" else 0
+# File uploader
+uploaded_file = st.file_uploader("Upload your CSV file", type=["csv"])
 
-# SSC Percentage
-p2 = st.number_input("Secondary Education percentage - 10th Grade", 0.0, 100.0)
+if uploaded_file is not None:
+    df = pd.read_csv(uploaded_file)
 
-# SSC Board
-ssc_board = st.selectbox("Board of Education (SSC)", ["Central", "Others"])
-p3 = 1 if ssc_board == "Central" else 0
+    try:
+        # One-hot encode specific categorical columns
+        df_encoded = pd.get_dummies(df, columns=['ExtracurricularActivities', 'PlacementTraining'], drop_first=True)
 
-# HSC Percentage
-p4 = st.number_input("Higher Secondary Education percentage - 12th Grade", 0.0, 100.0)
+        # Define features
+        features = [
+            'CGPA',
+            'Internships',
+            'Projects',
+            'Workshops/Certifications',
+            'AptitudeTestScore',
+            'SoftSkillsRating',
+            'SSC_Marks',
+            'HSC_Marks',
+            'ExtracurricularActivities_Yes',
+            'PlacementTraining_Yes'
+        ]
+        X = df_encoded[features]
 
-# HSC Board
-hsc_board = st.selectbox("Board of Education (HSC)", ["Central", "Others"])
-p5 = 1 if hsc_board == "Central" else 0
+        # Scale
+        scaler = StandardScaler()
+        X_scaled = scaler.fit_transform(X)
 
-# HSC Specialization
-hsc_s = st.selectbox("Specialization in Higher Secondary Education", ["Science", "Commerce", "Arts"])
-p6 = {"Arts": 0, "Commerce": 1, "Science": 2}[hsc_s]
+        # KMeans
+        kmeans = KMeans(n_clusters=3, random_state=42, n_init=10)
+        df_encoded['Cluster'] = kmeans.fit_predict(X_scaled)
 
-# Degree Percentage
-p7 = st.number_input("Degree Percentage", 0.0, 100.0)
+        # Analyze cluster means (based on CGPA or composite score)
+        cluster_means = df_encoded.groupby('Cluster')[features].mean().mean(axis=1)
+        ranking = cluster_means.sort_values(ascending=False)
 
-# Degree Type
-degree_t = st.selectbox("Field of Degree Education", ["Others", "Comm&Mgmt", "Sci&Tech"])
-p8 = {"Others": 0, "Comm&Mgmt": 1, "Sci&Tech": 2}[degree_t]
+        # Assign labels
+        placement_labels = {
+            ranking.index[0]: 'High',
+            ranking.index[1]: 'Medium',
+            ranking.index[2]: 'Low'
+        }
+        df_encoded['PlacementChance'] = df_encoded['Cluster'].map(placement_labels)
 
-# Work Experience
-workex = st.selectbox("Work Experience", ["Yes", "No"])
-p9 = 1 if workex == "Yes" else 0
+        # Show output
+        st.subheader("📊 Processed Data with Placement Clusters:")
+        st.dataframe(df_encoded[['Cluster', 'PlacementChance'] + features].head())
 
-# E-test Percentage
-p10 = st.number_input("Enter Test Percentage", 0.0, 100.0)
+        # Download option
+        output_file = df_encoded.copy()
+        csv = output_file.to_csv(index=False)
+        st.download_button("📥 Download Clustered Dataset", data=csv, file_name='clustered_placement_data.csv', mime='text/csv')
 
-# MBA Specialisation
-spec = st.selectbox("Branch Specialisation", ["Mky&Fin", "Mkt&HR"])
-p11 = 1 if spec == "Mkt&HR" else 0
-
-# MBA Percentage
-p12 = st.number_input("MBA Percentage", 0.0, 100.0)
-
-#Hackathon participation
-Hackathon = st.selectbox("Hackathon participation", ["Yes", "No"])
-p13 = 1 if Hackathon == "Yes" else 0
-
-#aptitude percentage
-p14 = st.number_input("aptitude Percentage", 0.0, 100.0)
-
-#coding marks
-p15 = st.number_input("coding marks", 0.0, 200.0)
-
-# Predict Button
-if st.button("Predict Placement"):
-    model = joblib.load("model_placement1")
-    new_data = pd.DataFrame([{
-        'gender': p1,
-        'ssc_p': p2,
-        'ssc_b': p3,
-        'hsc_p': p4,
-        'hsc_b': p5,
-        'hsc_s': p6,
-        'degree_p': p7,
-        'degree_t': p8,
-        'workex': p9,
-        'etest_p': p10,
-        'specialisation': p11,
-        'mba_p': p12,
-        'Hackathon': p13,
-        'aptitude_score': p14,
-        'coding_score': p15
-    }])
-
-    result = model.predict(new_data)
-    result1 = model.predict_proba(new_data)
-
-    if result[0] == 0:
-        st.error("❌ Sorry! The student is likely *not* to be placed.")
-    else:
-        probability = round(result1[0][1] * 100, 2)
-        st.success(f"✅ The student is likely to be placed with a probability of **{probability}%**.")
+    except Exception as e:
+        st.error(f"⚠️ An error occurred: {str(e)}")
